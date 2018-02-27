@@ -16,7 +16,7 @@ using namespace std;
 
 #pragma warning(disable : 4244)  
 
-#define ESTIMATE_ELLIPSE_BY_MOMENTS	0
+#define ESTIMATE_ELLIPSE_BY_MOMENTS	1
 
 bool comp(const ringCircularPattern& lhs, const ringCircularPattern& rhs)
 {
@@ -182,6 +182,159 @@ private:
 	std::vector<uint8_t> &valid;
 };
 
+
+/*
+* extract connected components from given image.
+*/
+bool componentConnect(const cv::Mat &src, std::vector<int> &label,
+	std::vector<std::vector<cv::Point2i> > &components, char *buf, char *rtype,
+	int invalidVal,
+	bool filterSmall, float smallRegionSize,
+	bool filterBig, float bigRegionSize)
+{
+	//pixel label
+	cv::Mat labelimg = cv::Mat::zeros(src.size(), CV_32SC1);
+	// region type
+	memset(rtype, 0, sizeof(char)*src.cols*src.rows);
+
+	cv::Point2i *ptrBuf = (cv::Point2i *)buf;
+
+	const int width = src.cols, height = src.rows;
+	const int smallResionType = 1;
+	const int smallComponentThresh = int(smallRegionSize * height * width);
+	const int bigResionType = 2;
+	const int bigComponentThresh = filterBig ?
+		int(bigRegionSize * height * width) : (height * width);
+
+	int currlabel = 1;
+	const int unlabeled = 0;
+
+	for (int i = 0; i < src.rows; i++)
+	{
+		const uchar *ptr = src.ptr<uchar>(i);
+		int* lptr = labelimg.ptr<int>(i);
+		for (int j = 0; j < src.cols; j++)
+		{
+			if (ptr[j] == invalidVal) continue;
+			if (lptr[j] != unlabeled)
+			{
+				if (rtype[lptr[j]] == smallResionType)
+				{
+				}
+				continue;
+			}
+
+			// valid
+			lptr[j] = currlabel;
+			cv::Point2i *base = ptrBuf;
+			*ptrBuf = cv::Point2i(j, i); ptrBuf++;
+			int componentSize = 1;
+			std::vector<cv::Point2i> candidates;
+			while (ptrBuf > base)
+			{
+				ptrBuf--;
+				cv::Point2i pt = *(ptrBuf);
+				candidates.push_back(pt);
+				const uchar *rptr = src.ptr<uchar>(pt.y);
+				int* rlptr = labelimg.ptr<int>(pt.y);
+
+				//left
+				if ((pt.x - 1) >= 0 && rptr[pt.x - 1] != invalidVal
+					&& rlptr[pt.x - 1] == unlabeled)
+				{
+					componentSize++;
+					rlptr[pt.x - 1] = currlabel;
+					*ptrBuf++ = cv::Point2i(pt.x - 1, pt.y);
+				}
+				//right
+				if ((pt.x + 1) < src.cols && rptr[pt.x + 1] != invalidVal
+					&& rlptr[pt.x + 1] == unlabeled)
+				{
+					componentSize++;
+					rlptr[pt.x + 1] = currlabel;
+					*ptrBuf++ = cv::Point2i(pt.x + 1, pt.y);
+				}
+				//up
+				if ((pt.y - 1) >= 0 && rptr[pt.x - width] != invalidVal
+					&& rlptr[pt.x - width] == unlabeled)
+				{
+					componentSize++;
+					rlptr[pt.x - width] = currlabel;
+					*ptrBuf++ = cv::Point2i(pt.x, pt.y - 1);
+				}
+				//down
+				if ((pt.y + 1) < src.rows && rptr[pt.x + width] != invalidVal
+					&& rlptr[pt.x + width] == unlabeled)
+				{
+					componentSize++;
+					rlptr[pt.x + width] = currlabel;
+					*ptrBuf++ = cv::Point2i(pt.x, pt.y + 1);
+				}
+			}
+
+			// end
+			if (componentSize < smallComponentThresh)
+			{
+				// small region
+				rtype[currlabel] = 1;
+			}
+			else if (componentSize > bigComponentThresh)
+			{
+				// big region
+				rtype[currlabel] = 2;
+			}
+			else
+			{
+				// suitable
+				label.push_back(currlabel);
+				components.push_back(candidates);
+			}
+			currlabel++;
+		}
+	}
+
+	return true;
+}
+
+
+bool extractContour(
+	const cv::Mat &binary,
+	const std::vector < std::vector<cv::Point> > &components,
+	std::vector<std::vector<cv::Point>> &contours)
+{
+	contours.resize(components.size());
+	const int width = binary.cols;
+	const int height = binary.rows;
+
+	for (size_t i = 0; i < components.size(); i++)
+	{
+		for (size_t j = 0; j < components[i].size(); j++)
+		{
+			//check 4 neighbors
+			auto pt = components[i][j];
+			const uchar *ptr = &(binary.ptr<uchar>(pt.y)[pt.x]);
+			if ((pt.x - 1) >= 0 && ptr[-1] == 0) {
+				contours[i].push_back(pt);
+				continue;
+			}
+			if ((pt.x + 1) < width && ptr[+1] == 0) {
+				contours[i].push_back(pt);
+				continue;
+			}
+			if ((pt.y - 1) >= 0 && ptr[-width] == 0) {
+				contours[i].push_back(pt);
+				continue;
+			}
+			if ((pt.y + 1) < height && ptr[+width] == 0) {
+				contours[i].push_back(pt);
+				continue;
+			}
+		}
+	}
+
+	return true;
+}
+
 int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray)
 {
 	std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
@@ -191,12 +344,12 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray)
 	float resizeScale_inv = 1;
 	cv::Mat frame_gray_small;
 	//
-	cv::resize(frame_gray, frame_gray_small, cv::Size(0, 0), resizeScale, resizeScale, CV_INTER_NN);
+	//cv::resize(frame_gray, frame_gray_small, cv::Size(0, 0), resizeScale, resizeScale, CV_INTER_NN);
 
 	// threshold
 	cv::Mat binary;
-	cv::adaptiveThreshold(frame_gray_small, binary, 255, cv::ADAPTIVE_THRESH_MEAN_C, CV_THRESH_BINARY_INV, 7, 0);
-	//cv::threshold(frame_gray, binary, 128, 255, CV_THRESH_BINARY_INV);
+	cv::adaptiveThreshold(frame_gray, binary, 255, cv::ADAPTIVE_THRESH_MEAN_C, CV_THRESH_BINARY_INV, 7, 0);
+	//cv::threshold(frame_gray, binary, 25, 255, CV_THRESH_BINARY_INV);
 
 #if 1	// USE_ERODE
 	// image erode and dialate
@@ -207,24 +360,43 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray)
 			cv::Point(-1, -1));
 		/// Apply the erosion operation
 		erode(binary, binary, element);
-		//int dilation_type = cv::MORPH_RECT;
-		//dilate(src, dilation_dst, element);
+		int dilation_type = cv::MORPH_RECT;
+		dilate(binary, binary, element);
 	}
 #endif
 
-	//std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
-	//std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << std::endl;
+	std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
+	std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << std::endl;
 
 	std::vector<std::vector<cv::Point>> contours;
 	std::vector<cv::Vec4i> hierarchy;
+	//std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
 	cv::findContours(binary, contours, hierarchy, CV_RETR_LIST, CV_CHAIN_APPROX_NONE);
-	
-	//std::chrono::high_resolution_clock::time_point t3 = std::chrono::high_resolution_clock::now();
-	//std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count() << std::endl;
+	std::chrono::high_resolution_clock::time_point t3 = std::chrono::high_resolution_clock::now();
+
+	cv::Mat binaryc;
+	cv::cvtColor(binary, binaryc, CV_GRAY2BGR);
+	//cv::namedWindow("binary", CV_WINDOW_NORMAL);
+	//cv::imshow("binary", binaryc);
+	//cv::waitKey(10);
+
+	//cv::Mat components = cv::Mat::zeros(binary.size(), CV_8UC1);
+	//std::vector<std::vector<cv::Point2i> > componentPts;
+	//std::vector<int> label;
+	//char *buf = (char *)malloc(sizeof(cv::Point2i)*binary.cols*binary.rows);
+	//char *rtype = (char *)malloc(sizeof(char)*binary.cols*binary.rows);
+	//std::vector<std::vector<cv::Point> > contours1;
+	//std::chrono::high_resolution_clock::time_point t4 = std::chrono::high_resolution_clock::now();
+	//componentConnect(binary, label, componentPts, buf, rtype, 0, true, 0.001, true, 0.01);
+	//extractContour(binary, componentPts, contours1);	
+	//std::chrono::high_resolution_clock::time_point t5 = std::chrono::high_resolution_clock::now();
+	std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count() << std::endl;
+	//std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(t5 - t4).count() << std::endl;
 
 	int minContourSize = 100 * resizeScale;
 	int maxContourSize = 1000 * resizeScale;
-	const double roundnessTolerance = 0.8;
+	const double roundnessTolerance = 0.7;
+	const double circularityTolerance = 0.3;
 	const float centerDistanceToleranceAbs = 10;
 	const float areaRatio = innerdiameter*innerdiameter / outterdiameter*outterdiameter;
 	const float areaRatioTolerance = 0.3;
@@ -339,10 +511,14 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray)
 				e.F = et.at<double>(0, 5);
 #endif
 				float circularity = CV_PI * (e.a)*(e.b) / e.area;
-				if (fabsf(circularity - 1) < 0.3) {
+				if (fabsf(circularity - 1) < circularityTolerance) {
 					can1.push_back(i);
 					canMoments.push_back(e);
 					//return true;
+					//cv::drawContours(binaryc, contours, i, cv::Scalar(0, 255, 0, 0), 2, 8);
+					//cv::namedWindow("binary", CV_WINDOW_NORMAL);
+					//cv::imshow("binary", binaryc);
+					//cv::waitKey(0);
 				}
 			}
 		}
@@ -451,19 +627,22 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray)
 		ringCircles.push_back(ringCircleCandiates[i]);
 	}
 	
-	/*std::chrono::high_resolution_clock::time_point t4 = std::chrono::high_resolution_clock::now();
-	std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(t4 - t3).count() << std::endl;*/
+	std::chrono::high_resolution_clock::time_point t4 = std::chrono::high_resolution_clock::now();
+	std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(t4 - t3).count() << std::endl;
 	std::sort(ringCircles.begin(), ringCircles.end(), comp);
 	//std::chrono::high_resolution_clock::time_point t5 = std::chrono::high_resolution_clock::now();
 	//std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(t5 - t4).count() << std::endl;
 
-	/*
+	
 	for (size_t i = 0; i < ringCircleCandiates.size(); i++)
 	{
-		cv::drawContours(frame, contours, ringCircles[i].matchpair.first, cv::Scalar(0, 0, 255, 0), 1, 8);
-		cv::drawContours(frame, contours, ringCircles[i].matchpair.second, cv::Scalar(255, 0, 0, 0), 1, 8);
-	}*/
-	
+		//cv::drawContours(binaryc, contours, i, cv::Scalar(0, 255, 0, 0), 2, 8);
+		cv::drawContours(binaryc, contours, ringCircles[i].matchpair.first, cv::Scalar(0, 0, 255, 0), 1, 8);
+		cv::drawContours(binaryc, contours, ringCircles[i].matchpair.second, cv::Scalar(255, 0, 0, 0), 1, 8);
+	}
+	//cv::namedWindow("binary", CV_WINDOW_NORMAL);
+	//cv::imshow("binary", binaryc);
+	//cv::waitKey(0);
 
 	return ringCircles.size();
 }
