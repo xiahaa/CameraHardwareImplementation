@@ -85,6 +85,11 @@ namespace cv {
 			{
 				height = _height;
 				width = _width;
+				int len = width * height;
+				buffer.resize(len);
+				queue.resize(len);
+				cleanup(Circle(), false);
+
 				return true;
 			}
 
@@ -214,6 +219,13 @@ namespace cv {
 
 		int targets, width, height;
 		bool axis_set;
+		float dimx, dimy;
+
+		void setDimXY(float _dimx, float _dimy)
+		{
+			dimx = _dimx;
+			dimy = _dimy;
+		}
 
 	private:
 		cv::Mat K, dist_coeff;

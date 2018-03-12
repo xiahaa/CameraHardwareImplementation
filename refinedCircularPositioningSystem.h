@@ -14,11 +14,13 @@ struct __ellipseFeatures_t {
 	float area;
 	float v0;
 	float v1;
+	int bbwith;
+	int bbheight;
 
 	float A, B, C, D, E, F;
 
 	__ellipseFeatures_t(void):x(0), y(0), a(0), b(0), theta(0), v0(0), v1(0),
-		A(0), B(0), C(0), D(0), E(0), F(0) {}
+		A(0), B(0), C(0), D(0), E(0), F(0), bbwith(0), bbheight(0){}
 
 	__ellipseFeatures_t& operator=(const __ellipseFeatures_t &other)
 	{
@@ -75,7 +77,7 @@ public:
 	}
 	~circularPatternBasedLocSystems() {}
 
-	int detectPatterns(const cv::Mat &frame_gray);
+	int detectPatterns(const cv::Mat &frame_gray, bool do_tracking);
 	
 	void drawPatterns(cv::Mat frame_rgb);
 
