@@ -11,12 +11,15 @@
 #include "opencv2/highgui.hpp"
 #include "fitEllipse.h"
 #include "tbb\tbb.h"
+#include <omp.h>
 
 using namespace std;
 
 #pragma warning(disable : 4244)  
 
 #define ESTIMATE_ELLIPSE_BY_MOMENTS	1
+#define PARALLEL_COMPUTING			0
+
 
 bool comp(const ringCircularPattern& lhs, const ringCircularPattern& rhs)
 {
@@ -335,63 +338,123 @@ bool extractContour(
 	return true;
 }
 
-int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray)
+int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray, bool do_tracking)
 {
-	std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
-
+	const int srcwidth = frame_gray.cols;
+	const int srcheight = frame_gray.rows;
 	// do we really need full resolution
-	float resizeScale = 1;
-	float resizeScale_inv = 1;
-	cv::Mat frame_gray_small;
-	//
-	//cv::resize(frame_gray, frame_gray_small, cv::Size(0, 0), resizeScale, resizeScale, CV_INTER_NN);
+	double resizeScale = 1;
+	double resizeScale_inv = 1;
+	// split image
+	std::vector<std::vector<cv::Point> > contours;
 
-	// threshold
-	cv::Mat binary;
-	cv::adaptiveThreshold(frame_gray, binary, 255, cv::ADAPTIVE_THRESH_MEAN_C, CV_THRESH_BINARY_INV, 7, 0);
-	//cv::threshold(frame_gray, binary, 25, 255, CV_THRESH_BINARY_INV);
+	std::chrono::high_resolution_clock::time_point t1, t2, t3;
+	if (!do_tracking)
+	{
+		t1 = std::chrono::high_resolution_clock::now();
+
+		cv::Mat frame_gray_small;
+		//
+		cv::resize(frame_gray, frame_gray_small, cv::Size(0, 0), resizeScale, resizeScale, CV_INTER_NN);
+
+		// threshold
+		cv::Mat binary;
+		cv::adaptiveThreshold(frame_gray_small, binary, 255, cv::ADAPTIVE_THRESH_MEAN_C, CV_THRESH_BINARY_INV, 7, 0);
+		//cv::threshold(frame_gray, binary, 25, 255, CV_THRESH_BINARY_INV);
 
 #if 1	// USE_ERODE
 	// image erode and dialate
-	{
-		int erosion_type = cv::MORPH_RECT;
-		int winSize = 3;
-		cv::Mat element = cv::getStructuringElement(erosion_type, cv::Size(winSize, winSize),
-			cv::Point(-1, -1));
-		/// Apply the erosion operation
-		erode(binary, binary, element);
-		int dilation_type = cv::MORPH_RECT;
-		dilate(binary, binary, element);
-	}
+		{
+			int erosion_type = cv::MORPH_RECT;
+			int winSize = 3;
+			cv::Mat element = cv::getStructuringElement(erosion_type, cv::Size(winSize, winSize),
+				cv::Point(-1, -1));
+			/// Apply the erosion operation
+			erode(binary, binary, element);
+			int dilation_type = cv::MORPH_RECT;
+			dilate(binary, binary, element);
+		}
 #endif
 
-	std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
-	std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << std::endl;
+		t2 = std::chrono::high_resolution_clock::now();
+		std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << std::endl;
 
-	std::vector<std::vector<cv::Point>> contours;
-	std::vector<cv::Vec4i> hierarchy;
-	//std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
-	cv::findContours(binary, contours, hierarchy, CV_RETR_LIST, CV_CHAIN_APPROX_NONE);
-	std::chrono::high_resolution_clock::time_point t3 = std::chrono::high_resolution_clock::now();
+		std::vector<cv::Vec4i> hierarchy;
+		//std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
+		cv::findContours(binary, contours, hierarchy, CV_RETR_LIST, CV_CHAIN_APPROX_NONE);
+		t3 = std::chrono::high_resolution_clock::now();
+		//cv::Mat binaryc;
+		//cv::cvtColor(binary, binaryc, CV_GRAY2BGR);
+		//cv::namedWindow("binary", CV_WINDOW_NORMAL);
+		//cv::imshow("binary", binaryc);
+		//cv::waitKey(10);
 
-	cv::Mat binaryc;
-	cv::cvtColor(binary, binaryc, CV_GRAY2BGR);
-	//cv::namedWindow("binary", CV_WINDOW_NORMAL);
-	//cv::imshow("binary", binaryc);
-	//cv::waitKey(10);
+		//cv::Mat components = cv::Mat::zeros(binary.size(), CV_8UC1);
+		//std::vector<std::vector<cv::Point2i> > componentPts;
+		//std::vector<int> label;
+		//char *buf = (char *)malloc(sizeof(cv::Point2i)*binary.cols*binary.rows);
+		//char *rtype = (char *)malloc(sizeof(char)*binary.cols*binary.rows);
+		//std::vector<std::vector<cv::Point> > contours1;
+		//std::chrono::high_resolution_clock::time_point t4 = std::chrono::high_resolution_clock::now();
+		//componentConnect(binary, label, componentPts, buf, rtype, 0, true, 0.001, true, 0.01);
+		//extractContour(binary, componentPts, contours1);	
+		//std::chrono::high_resolution_clock::time_point t5 = std::chrono::high_resolution_clock::now();
+		std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count() << std::endl;
+		//std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(t5 - t4).count() << std::endl;
+	}
+	else
+	{
+		std::vector<std::vector<std::vector<cv::Point> > > contours_openmp;
+		t1 = std::chrono::high_resolution_clock::now();
+		int num_of_threads = omp_get_max_threads();
+		contours_openmp.resize(num_of_threads);
+#if PARALLEL_COMPUTING
+#pragma omp parallel for
+#endif
+		for (int i = 0; i < ringCircles.size(); i++)
+		{
+			int id = omp_get_thread_num();
+			cv::Rect bb;
+			bb.x = max(ringCircles[i].outter.x - ringCircles[i].outter.bbwith * 1.5, 0);
+			bb.y = max(ringCircles[i].outter.y - ringCircles[i].outter.bbheight * 1.5, 0);
+			bb.width = (ringCircles[i].outter.bbwith * 2);
+			if ((bb.x + bb.width) >= srcwidth)
+				bb.width = srcwidth - bb.x;
+			bb.height = (ringCircles[i].outter.bbheight * 2);
+			if ((bb.y + bb.height) >= srcheight)
+				bb.height = srcheight - bb.y;
 
-	//cv::Mat components = cv::Mat::zeros(binary.size(), CV_8UC1);
-	//std::vector<std::vector<cv::Point2i> > componentPts;
-	//std::vector<int> label;
-	//char *buf = (char *)malloc(sizeof(cv::Point2i)*binary.cols*binary.rows);
-	//char *rtype = (char *)malloc(sizeof(char)*binary.cols*binary.rows);
-	//std::vector<std::vector<cv::Point> > contours1;
-	//std::chrono::high_resolution_clock::time_point t4 = std::chrono::high_resolution_clock::now();
-	//componentConnect(binary, label, componentPts, buf, rtype, 0, true, 0.001, true, 0.01);
-	//extractContour(binary, componentPts, contours1);	
-	//std::chrono::high_resolution_clock::time_point t5 = std::chrono::high_resolution_clock::now();
-	std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count() << std::endl;
-	//std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(t5 - t4).count() << std::endl;
+			cv::Mat roi;
+			frame_gray(bb).copyTo(roi);
+
+			cv::Mat binary;
+			cv::adaptiveThreshold(roi, binary, 255, cv::ADAPTIVE_THRESH_MEAN_C, CV_THRESH_BINARY_INV, 7, 0);
+
+			// image erode and dialate
+			{
+				int erosion_type = cv::MORPH_RECT;
+				int winSize = 3;
+				cv::Mat element = cv::getStructuringElement(erosion_type, cv::Size(winSize, winSize),
+					cv::Point(-1, -1));
+				/// Apply the erosion operation
+				erode(binary, binary, element);
+				int dilation_type = cv::MORPH_RECT;
+				dilate(binary, binary, element);
+			}
+
+			std::vector<std::vector<cv::Point>> contoursoi;
+			std::vector<cv::Vec4i> hierarchy;
+			cv::findContours(binary, contoursoi, hierarchy, CV_RETR_LIST, CV_CHAIN_APPROX_NONE,cv::Point(bb.x,bb.y));
+
+			contours_openmp[id].insert(contours_openmp[id].end(), contoursoi.begin(), contoursoi.end());
+		}
+		t3 = std::chrono::high_resolution_clock::now();
+
+		for (auto cts : contours_openmp)
+			contours.insert(contours.end(), cts.begin(), cts.end());
+
+		std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t1).count() << std::endl;
+	}
 
 	int minContourSize = 100 * resizeScale;
 	int maxContourSize = 1000 * resizeScale;
@@ -424,16 +487,19 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray)
 #else
 	// do contours selection, roundness and contour's size, TODO, if we want this to work in large scale env, 
 	//  we need to capture large dataset in order to determine the min, max contour size
-	
-	for (size_t i = 0; i < contours.size(); i++)
+#if PARALLEL_COMPUTING
+#pragma omp parallel for
+#endif
+	for (int i = 0; i < contours.size(); i++)
 	{
-		std::vector<cv::Point> &contour = contours[i];
+		const std::vector<cv::Point> &contour = contours[i];
 		if (contour.size() > minContourSize && contour.size() < maxContourSize)
 		{
 			double perimeter = cv::arcLength(contour, true);
 			double area = cv::contourArea(contour, false);
 			double roundness = 4 * CV_PI*area / perimeter / perimeter;
 			double errRoundness = fabs(roundness - 1);
+			cv::Rect bb = cv::boundingRect(contour);
 			if (errRoundness < roundnessTolerance)
 			{
 				//compute ellipse parameters
@@ -473,6 +539,9 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray)
 				}
 				e.theta = 0.5 * atan2(2 * nu11, nu20 - nu02);
 				e.area = area * resizeScale_inv * resizeScale_inv;
+
+				e.bbwith = bb.width;
+				e.bbheight = bb.height;
 #else /* direct ellipse fitting */
 				auto transform = [](std::vector<cv::Point> &src) {
 					std::vector<cv::Point2f> dst;
@@ -510,9 +579,16 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray)
 				e.E = et.at<double>(0, 4);
 				e.F = et.at<double>(0, 5);
 #endif
+
 				float circularity = CV_PI * (e.a)*(e.b) / e.area;
 				if (fabsf(circularity - 1) < circularityTolerance) {
+#if PARALLEL_COMPUTING
+#pragma omp critical (can1)
+#endif
 					can1.push_back(i);
+#if PARALLEL_COMPUTING
+#pragma omp critical (canMoments)
+#endif
 					canMoments.push_back(e);
 					//return true;
 					//cv::drawContours(binaryc, contours, i, cv::Scalar(0, 255, 0, 0), 2, 8);
@@ -528,7 +604,10 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray)
 	// inner/outter check
 	std::vector<bool> matched(can1.size(), false);
 	std::vector<ringCircularPattern> ringCircleCandiates;
-	for (size_t i = 0; i < can1.size(); i++)
+#if PARALLEL_COMPUTING
+#pragma omp parallel for
+#endif
+	for (int i = 0; i < can1.size(); i++)
 	{
 		if (matched[i])continue;
 		__ellipseFeatures_t mmi = canMoments[i];
@@ -592,10 +671,16 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray)
 #else
 				if (mmi.area > mmj.area)
 				{
+#if PARALLEL_COMPUTING
+#pragma omp critical (ringCircleCandiates)
+#endif
 					ringCircleCandiates.push_back(ringCircularPattern(std::make_pair(can1[i], can1[j]), mmj, mmi));
 				}
 				else
 				{
+#if PARALLEL_COMPUTING
+#pragma omp critical (ringCircleCandiates)
+#endif
 					ringCircleCandiates.push_back(ringCircularPattern(std::make_pair(can1[j], can1[i]), mmi, mmj));
 				}
 				matched[i] = true;
@@ -608,7 +693,10 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray)
 
 	// check multiple responses
 	ringCircles.clear();
-	for (size_t i = 0; i < ringCircleCandiates.size(); i++)
+#if PARALLEL_COMPUTING
+#pragma omp parallel for
+#endif
+	for (int i = 0; i < ringCircleCandiates.size(); i++)
 	{
 		int xi = ringCircleCandiates[i].outter.x;
 		int yi = ringCircleCandiates[i].outter.y;
@@ -624,22 +712,26 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray)
 		}
 		if (j != ringCircleCandiates.size())//to close
 			continue;
+#if PARALLEL_COMPUTING
+#pragma omp critical (ringCircles)
+#endif
 		ringCircles.push_back(ringCircleCandiates[i]);
 	}
 	
+	std::sort(ringCircles.begin(), ringCircles.end(), comp);
+
 	std::chrono::high_resolution_clock::time_point t4 = std::chrono::high_resolution_clock::now();
 	std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(t4 - t3).count() << std::endl;
-	std::sort(ringCircles.begin(), ringCircles.end(), comp);
 	//std::chrono::high_resolution_clock::time_point t5 = std::chrono::high_resolution_clock::now();
 	//std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(t5 - t4).count() << std::endl;
 
 	
-	for (size_t i = 0; i < ringCircleCandiates.size(); i++)
-	{
-		//cv::drawContours(binaryc, contours, i, cv::Scalar(0, 255, 0, 0), 2, 8);
-		cv::drawContours(binaryc, contours, ringCircles[i].matchpair.first, cv::Scalar(0, 0, 255, 0), 1, 8);
-		cv::drawContours(binaryc, contours, ringCircles[i].matchpair.second, cv::Scalar(255, 0, 0, 0), 1, 8);
-	}
+	//for (size_t i = 0; i < ringCircleCandiates.size(); i++)
+	//{
+	//	//cv::drawContours(binaryc, contours, i, cv::Scalar(0, 255, 0, 0), 2, 8);
+	//	cv::drawContours(binaryc, contours, ringCircles[i].matchpair.first, cv::Scalar(0, 0, 255, 0), 1, 8);
+	//	cv::drawContours(binaryc, contours, ringCircles[i].matchpair.second, cv::Scalar(255, 0, 0, 0), 1, 8);
+	//}
 	//cv::namedWindow("binary", CV_WINDOW_NORMAL);
 	//cv::imshow("binary", binaryc);
 	//cv::waitKey(0);
@@ -749,7 +841,10 @@ void circularPatternBasedLocSystems::getpos(const ringCircularPattern &circle, c
 
 void circularPatternBasedLocSystems::localization()
 {
-	for (size_t i = 0; i < ringCircles.size(); i++)
+#if PARALLEL_COMPUTING
+#pragma omp parallel for
+#endif
+	for (int i = 0; i < ringCircles.size(); i++)
 	{
 		cv::Vec3f pos;
 		cv::Vec3f rot;
