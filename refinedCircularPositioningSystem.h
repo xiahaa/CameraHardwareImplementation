@@ -88,6 +88,8 @@ public:
 	void read_axis(const std::string& file);
 
 	void draw_axis(cv::Mat& image);
+
+	bool tostream(std::ofstream &oss);
 protected:
 	void undistort(float x_in, float y_in, float& x_out, float& y_out);
 	void getpos(const ringCircularPattern &circle, cv::Vec3f &position, cv::Vec3f rotation);
