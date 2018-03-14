@@ -129,7 +129,7 @@ vector<string> getFiles(string cate_dir)
 	return files;
 }
 
-#define IMG_DIR		"C:/Users/xiahaa/workspace/data/offline/47"
+#define IMG_DIR		"C:/Users/xiahaa/Downloads/Test2/Test2"
 #define CALI_FILE	"C:/Users/xiahaa/workspace/mvBlueFox/cali_param_2_22_12_24.yml"
 #define AXIS_FILE	"C:/Users/xiahaa/workspace/circular/axis.yml"
 
@@ -228,18 +228,37 @@ int main()
 	cv::Size frame_size;
 	cv::LocalizationSystem system;
 
-	float inner_diameter = 0.023;//0.047;
-	float outer_diameter = 0.056;// 0.114;
+	float inner_diameter = 0.047;//0.047;/0.023
+	float outer_diameter = 0.114;////0.056
 	float dim_x = 0.049 + 0.056;//TODO
 	float dim_y = 0.062 + 0.056;
 	bool axisSet = false;
 	string axisfile(AXIS_FILE);
-	int num_of_markers = 4;
+	int num_of_markers = 1;
 	bool do_tracking = false;
 	circularPatternBasedLocSystems cplocsys(K, dist_coeff, inner_diameter, outer_diameter, dim_x, dim_y);
 
 	cv::Mat frame, frame_gray;
 	bool is_tracking = false;
+
+#define ENABLE_LOG_DUMP	1
+#if ENABLE_LOG_DUMP
+	std::ofstream logfile;
+	std::string storageLog = rootDir + "position.log";
+	logfile.open(storageLog, std::ios::out);
+	if (logfile.is_open())
+	{
+		std::cout << "INFO: positioning Logfile ready." << std::endl;
+		logfile << "positioning LOG START" << std::endl;
+	}
+	else
+	{
+		std::cout << "ERROR: Unable to open logfile. Logging disabled." << endl;
+		return false;
+	}
+#endif
+
+	int frame_idx = 0;
 	for (vector<string>::iterator it = imgfiles.begin(); it != imgfiles.end(); it++)
 	{
 		//frame.setTo(0);
@@ -250,6 +269,7 @@ int main()
 		std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
 		int detected_markers = cplocsys.detectPatterns(frame_gray, do_tracking);
 		if (detected_markers == num_of_markers)do_tracking = true;
+		else do_tracking = false;
 		std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
 		cplocsys.localization();
 		std::chrono::high_resolution_clock::time_point t3 = std::chrono::high_resolution_clock::now();
@@ -257,7 +277,7 @@ int main()
 		std::cout <<"t3-t2:"<< std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count() << std::endl;
 		cplocsys.drawPatterns(frame);
 
-		if (axisSet == false)
+		if (axisSet == false && 0)
 		{
 			cv::imshow("frame", frame);
 			char key = cv::waitKey(0);
@@ -276,7 +296,9 @@ int main()
 		else
 		{
 			cv::imshow("frame", frame);
-			char key = cv::waitKey(1000);
+			char key = cv::waitKey(1);
+			logfile << frame_idx++ << ":";
+			cplocsys.tostream(logfile);
 			//cv::namedWindow("tracking result", CV_WINDOW_NORMAL);
 			//cv::moveWindow("tracking result", 100, 100);
 			//cv::imshow("tracking result", frame);
@@ -347,11 +369,15 @@ int main()
 		cv::imshow("frame", frame);
 
 		//frame.release();
-		if ((cv::waitKey(0) & 255) == 'q')
+		if ((cv::waitKey(1) & 255) == 'q')
 		{
 			break;
 		}
 	}
+
+#if ENABLE_LOG_DUMP
+	logfile.close();
+#endif
 
 	return 0;
 }

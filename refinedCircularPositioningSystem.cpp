@@ -18,7 +18,7 @@ using namespace std;
 #pragma warning(disable : 4244)  
 
 #define ESTIMATE_ELLIPSE_BY_MOMENTS	1
-#define PARALLEL_COMPUTING			0
+#define PARALLEL_COMPUTING			1
 
 
 bool comp(const ringCircularPattern& lhs, const ringCircularPattern& rhs)
@@ -415,17 +415,20 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray, bo
 		{
 			int id = omp_get_thread_num();
 			cv::Rect bb;
-			bb.x = max(ringCircles[i].outter.x - ringCircles[i].outter.bbwith * 1.5, 0);
-			bb.y = max(ringCircles[i].outter.y - ringCircles[i].outter.bbheight * 1.5, 0);
-			bb.width = (ringCircles[i].outter.bbwith * 2);
+			bb.x = max(ringCircles[i].outter.x - ringCircles[i].outter.bbwith * 2, 0);
+			bb.y = max(ringCircles[i].outter.y - ringCircles[i].outter.bbheight * 2, 0);
+			bb.width = (ringCircles[i].outter.bbwith * 4);
 			if ((bb.x + bb.width) >= srcwidth)
 				bb.width = srcwidth - bb.x;
-			bb.height = (ringCircles[i].outter.bbheight * 2);
+			bb.height = (ringCircles[i].outter.bbheight * 4);
 			if ((bb.y + bb.height) >= srcheight)
 				bb.height = srcheight - bb.y;
 
 			cv::Mat roi;
 			frame_gray(bb).copyTo(roi);
+
+	/*		cv::imshow("roi", roi);
+			cv::waitKey(0);*/
 
 			cv::Mat binary;
 			cv::adaptiveThreshold(roi, binary, 255, cv::ADAPTIVE_THRESH_MEAN_C, CV_THRESH_BINARY_INV, 7, 0);
@@ -1069,14 +1072,43 @@ void circularPatternBasedLocSystems::drawPatterns(cv::Mat frame_rgb)
 	{\
 		float x = static_cast<int>(t(0) * 100)/100.0;\
 		float y = static_cast<int>(t(1) * 100) / 100.0;\
-		ss << std::setprecision(3) << "[" << x << "," << y << "]";\
+		float z = static_cast<int>(t(2) * 100) / 100.0;\
+		ss << std::setprecision(3) << "[" << x << "," << y << ","<< z << "]";\
 	}
 		DISPLAY_COOR(ringCircles[i].t)
-		cv::putText(frame_rgb, ss.str(), eo.center, CV_FONT_HERSHEY_COMPLEX_SMALL, 2, cv::Scalar(0, 255, 255, 0), 2, 8);
+		cv::putText(frame_rgb, ss.str(), eo.center, CV_FONT_HERSHEY_COMPLEX_SMALL, 2, cv::Scalar(0, 0, 255, 0), 2, 8);
 		//ss.clear();
 		//cv::ellipse(frame_rgb, eo, cv::Scalar(0, 0, 255, 0), 2, 8);
 		//cv::ellipse(frame_rgb, ei, cv::Scalar(255, 0, 0, 0), 2, 8);
 		//cv::drawContours(frame_rgb, contours, ringCircles[i].matchpair.first, cv::Scalar(0, 0, 255, 0), 1, 8);
 		//cv::drawContours(frame, contours, ringCircles[i].matchpair.second, cv::Scalar(255, 0, 0, 0), 1, 8);
 	}
+}
+
+bool circularPatternBasedLocSystems::tostream(std::ofstream &oss)
+{
+	if (ringCircles.size() == 0)
+	{
+		oss << -1 << "," << -1 << "," << -1 << "," << -1 << ";";
+		oss << std::endl;
+		return false;
+	}
+
+	for (size_t i = 0; i < ringCircles.size(); i++)
+	{
+		std::ostringstream ss;
+
+#define DISPLAY_COOR(t) \
+	{\
+		float x = static_cast<int>(t(0) * 1000)/1000.0;\
+		float y = static_cast<int>(t(1) * 1000) / 1000.0;\
+		float z = static_cast<int>(t(2) * 1000) / 1000.0;\
+		ss << std::setprecision(5) << x << "," << y << "," << z;\
+	}
+		DISPLAY_COOR(ringCircles[i].t)
+			oss << i << "," << ss.str() << ";";
+	}
+	oss << std::endl;
+
+	return true;
 }
