@@ -1133,15 +1133,16 @@ cv::Vec3f estimatePositionAnalyticalSol(const cv::Mat &et, const cv::Mat &camMat
 		twc1 = scale* eval[l3] * sqrt(d1)*evec.row(l2)
 			+ scale* eval[l2] * sqrt(d2)*evec.row(l3);
 		std::cout << "++" << twc1 << std::endl;
-		//twc = -1 * scale* eval[l3] * sqrt(d1)*evec.row(l2)
-		//	+ scale* eval[l2] * sqrt(d2)*evec.row(l3);
-		//std::cout << "-+" << twc << std::endl;
+		
+		cv::Mat twc3 = -1 * scale* eval[l3] * sqrt(d1)*evec.row(l2)
+			+ scale* eval[l2] * sqrt(d2)*evec.row(l3);
+		std::cout << "-+" << twc3 << std::endl;
 
 		cv::Mat twc2(1, 3, CV_64F);
-
-		//twc = 1 * scale* eval[l3] * sqrt(d1)*evec.row(l2)
-		//	- scale* eval[l2] * sqrt(d2)*evec.row(l3);
-		//std::cout << "+-" << twc << std::endl;
+		cv::Mat twc4(1, 3, CV_64F);
+		twc4 = 1 * scale* eval[l3] * sqrt(d1)*evec.row(l2)
+			- scale* eval[l2] * sqrt(d2)*evec.row(l3);
+		std::cout << "+-" << twc4 << std::endl;
 		twc2 = -1 * scale* eval[l3] * sqrt(d1)*evec.row(l2)
 			- scale* eval[l2] * sqrt(d2)*evec.row(l3);
 		std::cout << "--" << twc2 << std::endl;
@@ -1223,7 +1224,7 @@ cv::Vec3f estimatePositionGeometricSol(const cv::RotatedRect &rect, const cv::Ma
 	float gamma2 = gamma1;
 
 	float depth = R * (alpha1 + beta1) * 0.5 * f;
-	//std::cout << "x : " << depth * xc / f << "; y : " << depth * yc / f << "; z : " << depth << std::endl;
+	std::cout << "x : " << depth * xc / f << "; y : " << depth * yc / f << "; z : " << depth << std::endl;
 	//std::cout << "B:" <<  (alpha1) * R * vb1 << ";" << alpha1 * f * R << std::endl;
 	//std::cout << "C:" << -(beta1)* R * vb1 << ";" << beta1 * f * R  << std::endl;
 	//std::cout << "P:" << gamma1 * va1 * R << ";" << gamma1 * f * R << std::endl;

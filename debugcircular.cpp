@@ -129,7 +129,7 @@ vector<string> getFiles(string cate_dir)
 	return files;
 }
 
-#define IMG_DIR		"C:/Users/xiahaa/Downloads/Test2/Test2"
+#define IMG_DIR		"C:\\Users\\xiahaa\\workspace\\data\\offline\\174"
 #define CALI_FILE	"C:/Users/xiahaa/workspace/mvBlueFox/cali_param_2_22_12_24.yml"
 #define AXIS_FILE	"C:/Users/xiahaa/workspace/circular/axis.yml"
 
@@ -280,7 +280,7 @@ int main()
 		if (axisSet == false && 0)
 		{
 			cv::imshow("frame", frame);
-			char key = cv::waitKey(0);
+			char key = cv::waitKey(1);
 			if (key == 's')
 			{
 				cplocsys.setAxisFrame(pt,axisfile);
@@ -296,7 +296,7 @@ int main()
 		else
 		{
 			cv::imshow("frame", frame);
-			char key = cv::waitKey(1);
+			char key = cv::waitKey(0);
 			logfile << frame_idx++ << ":";
 			cplocsys.tostream(logfile);
 			//cv::namedWindow("tracking result", CV_WINDOW_NORMAL);
@@ -314,11 +314,11 @@ int main()
 			init = true;
 			frame_size = cv::Size(frame_gray.cols, frame_gray.rows);
 			std::cout << "frame size: " << frame_size << std::endl;
-			system.setParams(4, frame_size.width, frame_size.height, K, dist_coeff, outer_diameter, inner_diameter);
+			system.setParams(1, frame_size.width, frame_size.height, K, dist_coeff, outer_diameter, inner_diameter);
 			system.setDimXY(dim_x, dim_y);
 		}
 
-		if (axisSet == false)
+		if (axisSet == true)
 		{
 			// TODO, read first, if not exist, then do axis setting
 
@@ -328,7 +328,7 @@ int main()
 		}
 		else
 		{
-			int number_of_targets = 4;
+			int number_of_targets = 1;
 			if (!is_tracking) cout << "resetting targets" << endl;
 
 			int64_t ticks = cv::getTickCount();
@@ -345,13 +345,13 @@ int main()
 					cv::Vec3f coord = system.get_pose(circle).pos;
 					cv::Vec3f coord_trans = coord;
 					if (axisSet) {
-						coord_trans = system.get_transformed_pose(circle).pos;
+						//coord_trans = system.get_transformed_pose(circle).pos;
 					}
 
 					if (1) {
 						ostringstream ostr;
 						ostr << fixed << setprecision(2);
-						ostr << coord_trans[0] << ";" << coord_trans[1];
+						ostr << coord_trans[0] << ";" << coord_trans[1] << ";" << coord_trans[2];
 						//ostr << coord_trans[1] << endl;
 						circle.draw(frame, ostr.str(), cv::Vec3b(0, 0, 255));
 						//stringstream ss;
