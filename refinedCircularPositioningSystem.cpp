@@ -10,8 +10,10 @@
 #include "opencv2\core.hpp"
 #include "opencv2/highgui.hpp"
 #include "fitEllipse.h"
-#include "tbb\tbb.h"
+//#include "tbb\tbb.h"
 #include <omp.h>
+#include <unsupported/Eigen/NonLinearOptimization>
+#include <unsupported/Eigen/NumericalDiff>
 
 using namespace std;
 
@@ -20,6 +22,13 @@ using namespace std;
 #define ESTIMATE_ELLIPSE_BY_MOMENTS	0
 #define PARALLEL_COMPUTING			0
 
+#ifndef MAX(a,b)	
+#define MAX(a,b)	((a)>(b)?(a):(b))
+#endif
+
+#ifndef MIN(a,b)	
+#define MIN(a,b)	((a)<(b)?(a):(b))
+#endif
 
 bool comp(const ringCircularPattern& lhs, const ringCircularPattern& rhs)
 {
@@ -415,8 +424,8 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray, bo
 		{
 			int id = omp_get_thread_num();
 			cv::Rect bb;
-			bb.x = max(ringCircles[i].outter.x - ringCircles[i].outter.bbwith * 3, 0);
-			bb.y = max(ringCircles[i].outter.y - ringCircles[i].outter.bbheight * 3, 0);
+			bb.x = MAX(ringCircles[i].outter.x - ringCircles[i].outter.bbwith * 3, 0);
+			bb.y = MAX(ringCircles[i].outter.y - ringCircles[i].outter.bbheight * 3, 0);
 			bb.width = (ringCircles[i].outter.bbwith * 6);
 			if ((bb.x + bb.width) >= srcwidth)
 				bb.width = srcwidth - bb.x;
@@ -582,7 +591,7 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray, bo
 				e.x = rrect.center.x * resizeScale_inv + camK.at<double>(0, 2);
 				e.y = rrect.center.y * resizeScale_inv + camK.at<double>(1, 2);
 
-#if 0
+#if 1
 				// subpixel interpolation
 				float initx = e.x;
 				float inity = e.y;
@@ -656,7 +665,7 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray, bo
 					float grad1 = (int2 - int1) ;
 					float grad2 = (int3 - int2) ;
 					float grad3 = (int4 - int3) ;
-					float denom = max(grad1 + grad3 - 2 * grad2, 1);
+					float denom = MAX(grad1 + grad3 - 2 * grad2, 1);
 					float dsub = -(grad1 - grad3) / (denom * 2);
 
 					//a =  0.0833*int5 - 0.1667*int4 + 0.1667*int2 - 0.0833*int1;
@@ -750,7 +759,7 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray, bo
 			if ((ratio1 < areaRatioTolerance || ratio2 < areaRatioTolerance)
 				&& (d < centerDistanceToleranceAbs))
 			{
-#if 1
+#if 0
 				/* pixel leakage correction */
 				float r = areaRatio;
 				float m0o, m1o, m0i, m1i;
@@ -816,44 +825,54 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray, bo
 					//std::cout << eval << std::endl;
 
 					float lamda;
+					int valid = 0;
 					int rnum1 = 0, rnum2 = 1;
 
 					if (fabs(eval.at<float>(0, 0) - eval.at<float>(1, 0)) < 0.25)
 					{
-						lamda = eval.at<float>(0, 0);
+						lamda = (eval.at<float>(0, 0) + eval.at<float>(1, 0))*0.5;
+						valid = 1;
 					}
 					else if (fabs(eval.at<float>(1, 0) - eval.at<float>(2, 0)) < 0.25)
 					{
-						lamda = eval.at<float>(1, 0);
+						lamda = (eval.at<float>(1, 0) + eval.at<float>(2, 0))*0.5;
 						rnum1 = 1;
 						rnum2 = 2;
+						valid = 1;
 					}
 					else if (fabs(eval.at<float>(2, 0) - eval.at<float>(0, 0)) < 0.25)
 					{
-						lamda = eval.at<float>(2, 0);
+						lamda = (eval.at<float>(0, 0) + eval.at<float>(2, 0))*0.5;
+						//lamda = eval.at<float>(2, 0);
 						rnum1 = 2;
 						rnum2 = 0;
+						valid = 1;
 					}
 
-					cv::Mat Qsub = Qout.inv() - lamda * Qin.inv();
-
-					std::cout << Qsub << std::endl;
-
-					cv::Mat rc = Qsub.row(rnum1);
-					float rnorm = rc.at<float>(0, 0)* rc.at<float>(0, 0) + rc.at<float>(0, 1)* rc.at<float>(0, 1) + rc.at<float>(0, 2)*rc.at<float>(0, 2);
-					if (rnorm > 0.1)
+					if (valid == 1)
 					{
-						mmi.x = mmj.x = rc.at<float>(0, 0) / rc.at<float>(0, 2) + camK.at<double>(0, 2);
-						mmi.y = mmj.y = rc.at<float>(0, 1) / rc.at<float>(0, 2) + camK.at<double>(1, 2);
-					}
-					else
-					{
-						rc = Qsub.row(rnum2);
-						rnorm = rc.at<float>(0, 0)* rc.at<float>(0, 0) + rc.at<float>(0, 1)* rc.at<float>(0, 1) + rc.at<float>(0, 2)*rc.at<float>(0, 2);
+						cv::Mat Qsub = Qout.inv() - lamda * Qin.inv();
+
+						std::cout << Qsub << std::endl;
+
+						cv::Mat rc = Qsub.row(rnum1);
+						float rnorm = rc.at<float>(0, 0)* rc.at<float>(0, 0) + rc.at<float>(0, 1)* rc.at<float>(0, 1) + rc.at<float>(0, 2)*rc.at<float>(0, 2);
 						if (rnorm > 0.1)
 						{
-							mmi.x = mmj.x = rc.at<float>(0, 0) / rc.at<float>(0, 2) * camK.at<double>(0, 0) + camK.at<double>(0, 2);
-							mmi.y = mmj.y = rc.at<float>(0, 1) / rc.at<float>(0, 2) * camK.at<double>(0, 0) + camK.at<double>(1, 2);
+							mmi.x = mmj.x = rc.at<float>(0, 0) / rc.at<float>(0, 2) + camK.at<double>(0, 2);
+							mmi.y = mmj.y = rc.at<float>(0, 1) / rc.at<float>(0, 2) + camK.at<double>(1, 2);
+							mmi.a = mmi.a / fabs(lamda);
+						}
+						else
+						{
+							rc = Qsub.row(rnum2);
+							rnorm = rc.at<float>(0, 0)* rc.at<float>(0, 0) + rc.at<float>(0, 1)* rc.at<float>(0, 1) + rc.at<float>(0, 2)*rc.at<float>(0, 2);
+							if (rnorm > 0.1)
+							{
+								mmi.x = mmj.x = rc.at<float>(0, 0) / rc.at<float>(0, 2) * camK.at<double>(0, 0) + camK.at<double>(0, 2);
+								mmi.y = mmj.y = rc.at<float>(0, 1) / rc.at<float>(0, 2) * camK.at<double>(0, 0) + camK.at<double>(1, 2);
+								mmi.a = mmi.a / fabs(lamda);
+							}
 						}
 					}
 				}
@@ -876,48 +895,59 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray, bo
 					std::cout << eval << std::endl;
 
 					float lamda;
+					int valid = 0;
 					int rnum1 = 0, rnum2 = 1;
+
 					if (fabs(eval.at<float>(0, 0) - eval.at<float>(1, 0)) < 0.25)
 					{
-						lamda = eval.at<float>(0, 0);
+						lamda = (eval.at<float>(0, 0) + eval.at<float>(1, 0))*0.5;
+						valid = 1;
 					}
 					else if (fabs(eval.at<float>(1, 0) - eval.at<float>(2, 0)) < 0.25)
 					{
-						lamda = eval.at<float>(1, 0);
+						lamda = (eval.at<float>(1, 0) + eval.at<float>(2, 0))*0.5;
 						rnum1 = 1;
 						rnum2 = 2;
+						valid = 1;
 					}
-					else if(fabs(eval.at<float>(2, 0) - eval.at<float>(0, 0)) < 0.25)
+					else if (fabs(eval.at<float>(2, 0) - eval.at<float>(0, 0)) < 0.25)
 					{
-						lamda = eval.at<float>(2, 0);
+						lamda = (eval.at<float>(0, 0) + eval.at<float>(2, 0))*0.5;
 						rnum1 = 2;
 						rnum2 = 0;
+						valid = 1;
 					}
 
-					cv::Mat Qsub = Qin.inv() - lamda * Qout.inv();
-
-					std::cout << Qsub << std::endl;
-
-					cv::Mat rc = Qsub.row(rnum1);
-					float rnorm = rc.at<float>(0, 0)* rc.at<float>(0, 0) + rc.at<float>(0, 1)* rc.at<float>(0, 1) + rc.at<float>(0, 2)*rc.at<float>(0, 2);
-					if (rnorm > 0.1)
+					if (valid == 1)
 					{
-						std::cout << mmi.x << " ; " << mmj.x << " ; " << rc.at<float>(0, 0) / rc.at<float>(0, 2) + camK.at<double>(0, 2) << std::endl;
-						std::cout << mmi.y << " ; " << mmj.y << " ; " << rc.at<float>(0, 1) / rc.at<float>(0, 2) + camK.at<double>(1, 2) << std::endl;
+						cv::Mat Qsub = Qin.inv() - lamda * Qout.inv();
 
-						mmi.x = mmj.x = rc.at<float>(0, 0) / rc.at<float>(0, 2) + camK.at<double>(0, 2);
-						mmi.y = mmj.y = rc.at<float>(0, 1) / rc.at<float>(0, 2) + camK.at<double>(1, 2);
-					}
-					else
-					{
-						rc = Qsub.row(rnum2);
-						rnorm = rc.at<float>(0, 0)* rc.at<float>(0, 0) + rc.at<float>(0, 1)* rc.at<float>(0, 1) + rc.at<float>(0, 2)*rc.at<float>(0, 2);
+						std::cout << Qsub << std::endl;
+
+						cv::Mat rc = Qsub.row(rnum1);
+						float rnorm = rc.at<float>(0, 0)* rc.at<float>(0, 0) + rc.at<float>(0, 1)* rc.at<float>(0, 1) + rc.at<float>(0, 2)*rc.at<float>(0, 2);
 						if (rnorm > 0.1)
 						{
 							std::cout << mmi.x << " ; " << mmj.x << " ; " << rc.at<float>(0, 0) / rc.at<float>(0, 2) + camK.at<double>(0, 2) << std::endl;
 							std::cout << mmi.y << " ; " << mmj.y << " ; " << rc.at<float>(0, 1) / rc.at<float>(0, 2) + camK.at<double>(1, 2) << std::endl;
+
 							mmi.x = mmj.x = rc.at<float>(0, 0) / rc.at<float>(0, 2) + camK.at<double>(0, 2);
 							mmi.y = mmj.y = rc.at<float>(0, 1) / rc.at<float>(0, 2) + camK.at<double>(1, 2);
+							mmj.a = mmj.a / fabs(lamda);
+
+						}
+						else
+						{
+							rc = Qsub.row(rnum2);
+							rnorm = rc.at<float>(0, 0)* rc.at<float>(0, 0) + rc.at<float>(0, 1)* rc.at<float>(0, 1) + rc.at<float>(0, 2)*rc.at<float>(0, 2);
+							if (rnorm > 0.1)
+							{
+								std::cout << mmi.x << " ; " << mmj.x << " ; " << rc.at<float>(0, 0) / rc.at<float>(0, 2) + camK.at<double>(0, 2) << std::endl;
+								std::cout << mmi.y << " ; " << mmj.y << " ; " << rc.at<float>(0, 1) / rc.at<float>(0, 2) + camK.at<double>(1, 2) << std::endl;
+								mmi.x = mmj.x = rc.at<float>(0, 0) / rc.at<float>(0, 2) + camK.at<double>(0, 2);
+								mmi.y = mmj.y = rc.at<float>(0, 1) / rc.at<float>(0, 2) + camK.at<double>(1, 2);
+								mmj.a = mmj.a / fabs(lamda);
+							}
 						}
 					}
 				}
@@ -1006,14 +1036,180 @@ void circularPatternBasedLocSystems::undistort(float x_in, float y_in, float& x_
 #endif
 }
 
-void circularPatternBasedLocSystems::getpos(const ringCircularPattern &circle, cv::Vec3f &position, cv::Vec3f rotation)
+// Generic functor
+template<typename _Scalar, int NX = Eigen::Dynamic, int NY = Eigen::Dynamic>
+struct Functor
 {
+	typedef _Scalar Scalar;
+	enum {
+		InputsAtCompileTime = NX,
+		ValuesAtCompileTime = NY
+	};
+	typedef Eigen::Matrix<Scalar, InputsAtCompileTime, 1> InputType;
+	typedef Eigen::Matrix<Scalar, ValuesAtCompileTime, 1> ValueType;
+	typedef Eigen::Matrix<Scalar, ValuesAtCompileTime, InputsAtCompileTime> JacobianType;
+
+	int m_inputs, m_values;
+
+	Functor() : m_inputs(InputsAtCompileTime), m_values(ValuesAtCompileTime) {}
+	Functor(int inputs, int values) : m_inputs(inputs), m_values(values) {}
+
+	int inputs() const { return m_inputs; }
+	int values() const { return m_values; }
+
+};
+
+void getpose(float cx, float cy, float a, float b, float v0, float v1, float uu0, float vv0, float invf, float diameter,
+	cv::Vec3f &position);
+
+struct my_functor : Functor<double>
+{
+	my_functor(float v0, float v1, float uu0, float vv0, float invf, float ao, float bo, float ai, float bi, float diametero, float diameteri) : Functor<double>(3, 4),
+		_v0(v0), _v1(v1), _uu0(uu0), _vv0(vv0), _invf(invf), _ao(ao), _bo(bo), _ai(ai), _bi(bi), _diametero(diametero), _diameteri(diameteri){}
+	int operator()(const Eigen::VectorXd &x, Eigen::VectorXd &fvec) const
+	{
+		double cx = x(0);
+		double cy = x(1);
+		double _d = x(2);
+		//std::cout << " optx " << x << std::endl;
+
+		// for outter
+		double ao = _ao + _d; double bo = _bo + _d;
+		cv::Vec3f position1;
+		getpose(cx, cy, ao, bo, _v0, _v1, _uu0, _vv0, _invf, _diametero, position1);
+		//std::cout << " position1 " << position1 << std::endl;
+
+		//for inner
+		double ai = _ai - _d; double bi = _bi - _d;
+		cv::Vec3f position2;
+		getpose(cx, cy, ai, bi, _v0, _v1, _uu0, _vv0, _invf, _diameteri, position2);
+		//std::cout << "position2" << position2 << std::endl;
+
+		// Implement
+		fvec(0) = position1[0] - position2[0];
+		fvec(1) = position1[1] - position2[1];
+		fvec(2) = position1[2] - position2[2];
+		fvec(3) = (ai*bi) / (ao*bo) - (_diameteri*_diameteri) / (_diametero*_diametero);
+
+		//std::cout << "fvec:" << fvec << std::endl;
+
+		return 0;
+	}
+
+	float _v0;
+	float _v1;
+	float _uu0;
+	float _vv0;
+	float _invf;
+	float _ao, _bo, _ai, _bi;
+	float _diametero, _diameteri;
+};
+
+
+void getpose(float cx, float cy, float a, float b, float nv0, float nv1, float uu0, float vv0, float invf, float diameter,
+	cv::Vec3f &position)
+{
+	float x, y, x1, x2, y1, y2, sx1, sx2, sy1, sy2, major, minor, v0, v1;
+	//transform the center
+	x = (cx - uu0)*invf;
+	y = (cy - vv0)*invf;
+	//calculate the major axis 
+	//endpoints in image coords
+	sx1 = cx + nv0 * a;
+	sx2 = cx - nv0 * a;
+	sy1 = cy + nv1 * a;
+	sy2 = cy - nv1 * a;
+
+	//endpoints in camera coords 
+	x1 = (sx1 - uu0)*invf;; y1 = (sy1 - vv0)*invf;
+	x2 = (sx2 - uu0)*invf;; y2 = (sy2 - vv0)*invf;
+
+	//semiaxis length 
+	major = sqrt((x1 - x2)*(x1 - x2) + (y1 - y2)*(y1 - y2)) / 2.0;
+
+	v0 = (x2 - x1) / major / 2.0;
+	v1 = (y2 - y1) / major / 2.0;
+
+	//calculate the minor axis 
+	//endpoints in image coords
+	sx1 = cx + nv1 * b;
+	sx2 = cx - nv1 * b;
+	sy1 = cy - nv0 * b;
+	sy2 = cy + nv0 * b;
+
+	//endpoints in camera coords 
+	x1 = (sx1 - uu0)*invf;; y1 = (sy1 - vv0)*invf;
+	x2 = (sx2 - uu0)*invf;; y2 = (sy2 - vv0)*invf;
+
+	//semiaxis length 
+	minor = sqrt((x1 - x2)*(x1 - x2) + (y1 - y2)*(y1 - y2)) / 2.0;
+	//construct the conic
+	float A, B, C, D, E, F;
+	A = v0*v0 / (major*major) + v1*v1 / (minor*minor);
+	B = v0*v1*(1 / (major*major) - 1 / (minor*minor));
+	C = v0*v0 / (minor*minor) + v1*v1 / (major*major);
+	D = (-x*A - B*y);
+	E = (-y*C - B*x);
+	F = (A*x*x + C*y*y + 2 * B*x*y - 1);
+
+	cv::Matx33d data(A, B, D,
+		B, C, E,
+		D, E, F);
+	// compute conic eigenvalues and eigenvectors
+	cv::Vec3d eigenvalues;
+	cv::Matx33d eigenvectors;
+	cv::eigen(data, eigenvalues, eigenvectors);
+	// compute ellipse parameters in real-world
+	double L1 = eigenvalues(1);
+	double L2 = eigenvalues(0);
+	double L3 = eigenvalues(2);
+	int V2 = 0;
+	int V3 = 2;
+
+	// position
+	double z = diameter / sqrt(-L2*L3) / 2.0;
+	cv::Matx13d position_mat = L3 * sqrt((L2 - L1) / (L2 - L3)) * eigenvectors.row(V2)
+		+ L2 * sqrt((L1 - L3) / (L2 - L3)) * eigenvectors.row(V3);
+	position = cv::Vec3f(position_mat(0), position_mat(1), position_mat(2));
+	int S3 = (position(2) * z < 0 ? -1 : 1);
+	position *= S3 * z;
+}
+
+void circularPatternBasedLocSystems::getpos(ringCircularPattern &circle, cv::Vec3f &position, cv::Vec3f rotation)
+{
+	float uu0 = camK.at<double>(0, 2);	float vv0 = camK.at<double>(1, 2);
+	float invf = 1 / camK.at<double>(0, 0);
+
+	// do a L-M optimization
+	Eigen::VectorXd optx(3);
+	optx(0) = circle.outter.x;
+	optx(1) = circle.outter.y;
+	optx(2) = 0;
+
+	//std::cout << "x: " << optx << std::endl;
+
+	my_functor functor(circle.outter.v0, circle.outter.v1, uu0, vv0, invf, circle.outter.a, circle.outter.b, circle.inner.a, circle.inner.b, outterdiameter, innerdiameter);
+	Eigen::NumericalDiff<my_functor> numDiff(functor);
+	Eigen::LevenbergMarquardt<Eigen::NumericalDiff<my_functor>, double> lm(numDiff);
+	lm.parameters.maxfev = 100;
+	lm.parameters.xtol = 1.0e-10;
+	std::cout << lm.parameters.maxfev << std::endl;
+	int ret = lm.minimize(optx);
+	
+	/*std::cout << lm.iter << std::endl;
+	std::cout << ret << std::endl;
+	std::cout << "x that minimizes the function: " << optx << std::endl;*/
+
+	circle.outter.x = optx(0);
+	circle.outter.y = optx(1);
+	circle.outter.a = circle.outter.a + optx(2);
+	circle.outter.b = circle.outter.b + optx(2);
+
 #if 1
 	float x, y, x1, x2, y1, y2, sx1, sx2, sy1, sy2, major, minor, v0, v1;
 	//transform the center
 	//undistort(circle.outter.x, circle.outter.y, x, y);
-	float uu0 = camK.at<double>(0, 2);	float vv0 = camK.at<double>(1, 2);
-	float invf = 1 / camK.at<double>(0, 0);
+
 	x = (circle.outter.x - uu0)*invf;
 	y = (circle.outter.y - vv0)*invf;
 	//calculate the major axis 
@@ -1084,6 +1280,7 @@ void circularPatternBasedLocSystems::getpos(const ringCircularPattern &circle, c
 	rotation(0) = acos(circle.outter.b / circle.outter.a) / CV_PI*180.0;
 	rotation(1) = atan2(circle.outter.v1, circle.outter.v0) / CV_PI*180.0;
 	rotation(2) = circle.outter.v1 / circle.outter.v0;
+
 #else
 	cv::Mat et(1, 6, CV_64F);
 	et.at<double>(0, 0) = circle.outter.A;
@@ -1111,7 +1308,7 @@ void circularPatternBasedLocSystems::getpos(const ringCircularPattern &circle, c
 void circularPatternBasedLocSystems::localization()
 {
 #if PARALLEL_COMPUTING
-#pragma omp parallel for
+//#pragma omp parallel for // not sure about eigen nonlinear optimizer works compatitble with omp parallel 
 #endif
 	for (int i = 0; i < ringCircles.size(); i++)
 	{

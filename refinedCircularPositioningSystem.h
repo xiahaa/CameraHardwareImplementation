@@ -92,7 +92,7 @@ public:
 	bool tostream(std::ofstream &oss);
 protected:
 	void undistort(float x_in, float y_in, float& x_out, float& y_out);
-	void getpos(const ringCircularPattern &circle, cv::Vec3f &position, cv::Vec3f rotation);
+	void getpos(ringCircularPattern &circle, cv::Vec3f &position, cv::Vec3f rotation);
 public:
 	bool setAxis;
 	float innerdiameter;
