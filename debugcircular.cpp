@@ -296,7 +296,7 @@ int main()
 		else
 		{
 			cv::imshow("frame", frame);
-			char key = cv::waitKey(0);
+			char key = cv::waitKey(1);
 			logfile << frame_idx++ << ":";
 			cplocsys.tostream(logfile);
 			//cv::namedWindow("tracking result", CV_WINDOW_NORMAL);
