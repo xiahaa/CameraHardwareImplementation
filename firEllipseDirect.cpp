@@ -1048,23 +1048,23 @@ void fromRotatedRectToEllipseParams(const cv::RotatedRect &rect, cv::Mat &et)
 {
 	et.create(1, 6, CV_64F);
 
-	float major = rect.size.width*0.5;
-	float minor = rect.size.height*0.5;
+	double major = rect.size.width*0.5;
+	double minor = rect.size.height*0.5;
 
-	float xc = rect.center.x;
-	float yc = rect.center.y;
+	double xc = rect.center.x;
+	double yc = rect.center.y;
 
-	float theta = rect.angle * CV_PI / 180.0;
+	double theta = rect.angle * CV_PI / 180.0;
 
-	float cy = cos(theta);
-	float sy = sin(theta);
-	float cy2 = cy*cy;
-	float sy2 = sy*sy;
-	float sycy = sy*cy;
-	float b2 = minor*minor;
-	float a2 = major*major;
+	double cy = cos(theta);
+	double sy = sin(theta);
+	double cy2 = cy*cy;
+	double sy2 = sy*sy;
+	double sycy = sy*cy;
+	double b2 = minor*minor;
+	double a2 = major*major;
 
-	float a2b2_inv = 1;
+	double a2b2_inv = 1;
 
 	double A, B, C, D, E, F;
 	A = (cy2*b2 + sy2*a2)*a2b2_inv;
@@ -1106,7 +1106,9 @@ cv::Vec3f estimatePositionAnalyticalSol(const cv::Mat &et, const cv::Mat &camMat
 	cv::Vec3d eval;
 	cv::Mat evec(3, 3, CV_64F);
 	cv::eigen(Q, eval, evec);
-	//std::cout << eval << std::endl;
+	//std::cout << evec << std::endl;
+	evec = evec.t();
+	//std::cout << evec << std::endl;
 	int l1 = 1, l2 = 0, l3 = 2;
 	float e2e3 = eval[l2] * eval[l3];
 	float e2_e3_inv = 1. / (eval[l2] - eval[l3]);

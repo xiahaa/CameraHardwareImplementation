@@ -90,6 +90,11 @@ public:
 	void draw_axis(cv::Mat& image);
 
 	bool tostream(std::ofstream &oss);
+
+	void routineFullPoseEstimationBasedOn2Markers(cv::Mat &src, float interdistance);// assume two know markers
+
+	void routineFullPoseEstimationBasedOn3Markers(cv::Mat &src, float hinterdistance, float vinterdistance);
+
 protected:
 	void undistort(float x_in, float y_in, float& x_out, float& y_out);
 	void getpos(ringCircularPattern &circle, cv::Vec3f &position, cv::Vec3f rotation);
