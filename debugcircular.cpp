@@ -129,7 +129,7 @@ vector<string> getFiles(string cate_dir)
 	return files;
 }
 
-#define IMG_DIR		"C:\\Users\\xiahaa\\workspace\\data\\offline\\174"
+#define IMG_DIR		"C:\\Users\\xiahaa\\workspace\\data\\offline\\184"
 #define CALI_FILE	"C:/Users/xiahaa/workspace/mvBlueFox/cali_param_2_22_12_24.yml"
 #define AXIS_FILE	"C:/Users/xiahaa/workspace/circular/axis.yml"
 
@@ -234,7 +234,7 @@ int main()
 	float dim_y = 0.062 + 0.056;
 	bool axisSet = false;
 	string axisfile(AXIS_FILE);
-	int num_of_markers = 1;
+	int num_of_markers = 3;
 	bool do_tracking = false;
 	circularPatternBasedLocSystems cplocsys(K, dist_coeff, inner_diameter, outer_diameter, dim_x, dim_y);
 
@@ -275,6 +275,9 @@ int main()
 		std::chrono::high_resolution_clock::time_point t3 = std::chrono::high_resolution_clock::now();
 		std::cout << "t2-t1:"<< std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << std::endl;
 		std::cout <<"t3-t2:"<< std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count() << std::endl;
+
+		//cplocsys.routineFullPoseEstimationBasedOn2Markers(frame, 0.214);
+		cplocsys.routineFullPoseEstimationBasedOn3Markers(frame, 0.214, 0.211+0.114);
 		cplocsys.drawPatterns(frame);
 
 		if (axisSet == false && 0)

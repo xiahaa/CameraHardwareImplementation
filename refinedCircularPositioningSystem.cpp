@@ -470,12 +470,12 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray, bo
 
 	int minContourSize = 100 * resizeScale;
 	int maxContourSize = 1200 * resizeScale;
-	const double roundnessTolerance = 0.5;
-	const double circularityTolerance = 0.5;
+	const double roundnessTolerance = 0.8;
+	const double circularityTolerance = 0.3;
 	const float centerDistanceToleranceAbs = 10;
 	const float areaRatio = innerdiameter*innerdiameter / outterdiameter*outterdiameter;
-	const float areaRatioTolerance = 0.5;
-	const int boardMargin = 5;
+	const float areaRatioTolerance = 0.3;
+	const int boardMargin = 20;
 
 	std::vector<int> can1;
 	std::vector<__ellipseFeatures_t> canMoments;
@@ -601,7 +601,7 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray, bo
 					num_of_pixels = contour.size();
 				}
 				// 
-				for (int jj = 0; jj < num_of_pixels; jj++)
+				for (int jj = 0; jj < contour.size(); jj++)
 				{
 					cv::Vec2f grad = cv::Vec2f(contour[jj].x - e.x, contour[jj].y - e.y);
 					grad = grad / cv::norm(grad);
@@ -612,13 +612,17 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray, bo
 					cv::Vec2f pf5 = cv::Vec2f(contour[jj].x + 2 * grad[0], contour[jj].y + 2 * grad[1]);
 
 					// do bilinear interpolation
-#define BILINEAR_INTER(ptf, intensity) \
+#define BILINEAR_INTER(ptf, intensity, height, width, isboard) \
 { \
-	const uchar *ptr = (uchar*)(&(frame_gray.ptr<uchar>(int(ptf[1]))[int(ptf[0])]));\
-	const uchar *ptrn = (uchar*)(&(frame_gray.ptr<uchar>(int(ptf[1]) + 1)[int(ptf[0])]));\
-	float d1 = ptf[0] - int(ptf[0]);\
-	float d2 = ptf[1] - int(ptf[1]);\
-	intensity = (1 - d1)*(1 - d2)*ptr[0] + d1*(1 - d2)*ptr[+1] + d2*(1 - d1)*ptrn[0] + d2*d1*ptrn[+1];\
+	if (int(ptf[1]) >= height || int(ptf[0]) >= width || int(ptf[1]+1) >= height || int(ptf[0]+1) >= width )\
+		isboard = 1;\
+	else{\
+		const uchar *ptr = (uchar*)(&(frame_gray.ptr<uchar>(int(ptf[1]))[int(ptf[0])]));\
+		const uchar *ptrn = (uchar*)(&(frame_gray.ptr<uchar>(int(ptf[1]) + 1)[int(ptf[0])])); \
+		float d1 = ptf[0] - int(ptf[0]);\
+		float d2 = ptf[1] - int(ptf[1]);\
+		intensity = (1 - d1)*(1 - d2)*ptr[0] + d1*(1 - d2)*ptr[+1] + d2*(1 - d1)*ptrn[0] + d2*d1*ptrn[+1];\
+	}\
 }
 
 #define NN_INTER(ptf, intensity) \
@@ -634,11 +638,12 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray, bo
 }\
 
 					float int1, int2, int3, int4, int5;
-					BILINEAR_INTER(pf1, int1);
-					BILINEAR_INTER(pf2, int2);
+					int isBoard = 0;
+					BILINEAR_INTER(pf1, int1, srcheight, srcwidth, isBoard); if (isBoard) continue;
+					BILINEAR_INTER(pf2, int2, srcheight, srcwidth, isBoard); if (isBoard) continue;
 					int3 = frame_gray.ptr<uchar>(contour[jj].y)[contour[jj].x];
-					BILINEAR_INTER(pf4, int4);
-					BILINEAR_INTER(pf5, int5);
+					BILINEAR_INTER(pf4, int4, srcheight, srcwidth, isBoard); if (isBoard) continue;
+					BILINEAR_INTER(pf5, int5, srcheight, srcwidth, isBoard); if (isBoard) continue;
 
 					//cv::Vec2f pf6 = cv::Vec2f(contour[jj].x - 3 * grad[0], contour[jj].y - 3 * grad[1]);
 					//cv::Vec2f pf7 = cv::Vec2f(contour[jj].x + 3 * grad[0], contour[jj].y + 3 * grad[1]);
@@ -989,7 +994,7 @@ int circularPatternBasedLocSystems::detectPatterns(const cv::Mat &frame_gray, bo
 		{
 			int xj = ringCircleCandiates[j].outter.x;
 			int yj = ringCircleCandiates[j].outter.y;
-			if ((abs(xi-xj)+abs(yi-yj)) < 5)
+			if ((abs(xi-xj)+abs(yi-yj)) < 10)
 			{
 				break;
 			}
@@ -1175,7 +1180,8 @@ void getpose(float cx, float cy, float a, float b, float nv0, float nv1, float u
 	position *= S3 * z;
 }
 
-void circularPatternBasedLocSystems::getpos(ringCircularPattern &circle, cv::Vec3f &position, cv::Vec3f rotation)
+void circularPatternBasedLocSystems::getpos(ringCircularPattern &circle, 
+	cv::Vec3f &position, cv::Vec3f rotation)
 {
 	float uu0 = camK.at<double>(0, 2);	float vv0 = camK.at<double>(1, 2);
 	float invf = 1 / camK.at<double>(0, 0);
@@ -1204,6 +1210,23 @@ void circularPatternBasedLocSystems::getpos(ringCircularPattern &circle, cv::Vec
 	circle.outter.y = optx(1);
 	circle.outter.a = circle.outter.a + optx(2);
 	circle.outter.b = circle.outter.b + optx(2);
+
+	//cv::RotatedRect rect;
+	//rect.angle = circle.outter.theta;
+	//rect.center.x = circle.outter.x - camK.at<double>(0, 2);
+	//rect.center.y = circle.outter.y - camK.at<double>(1, 2);
+	//rect.size.width = circle.outter.a * 2;
+	//rect.size.height = circle.outter.b * 2;
+
+	//cv::Mat et(1, 6, CV_64F);
+	//fromRotatedRectToEllipseParams(rect, et);
+
+	//circle.outter.A = et.at<double>(0, 0);
+	//circle.outter.B = et.at<double>(0, 1);
+	//circle.outter.C = et.at<double>(0, 2);
+	//circle.outter.D = et.at<double>(0, 3);
+	//circle.outter.E = et.at<double>(0, 4);
+	//circle.outter.F = et.at<double>(0, 5);
 
 #if 1
 	float x, y, x1, x2, y1, y2, sx1, sx2, sy1, sy2, major, minor, v0, v1;
@@ -1281,21 +1304,38 @@ void circularPatternBasedLocSystems::getpos(ringCircularPattern &circle, cv::Vec
 	rotation(1) = atan2(circle.outter.v1, circle.outter.v0) / CV_PI*180.0;
 	rotation(2) = circle.outter.v1 / circle.outter.v0;
 
-#else
-	cv::Mat et(1, 6, CV_64F);
-	et.at<double>(0, 0) = circle.outter.A;
-	et.at<double>(0, 1) = circle.outter.B;
-	et.at<double>(0, 2) = circle.outter.C;
-	et.at<double>(0, 3) = circle.outter.D;
-	et.at<double>(0, 4) = circle.outter.E;
-	et.at<double>(0, 5) = circle.outter.F;
 
-	cv::RotatedRect rect;
-	rect.angle = circle.outter.theta;
-	rect.center.x = circle.outter.x;
-	rect.center.y = circle.outter.y;
-	rect.size.width = circle.outter.a*2;
-	rect.size.height = circle.outter.b * 2;
+	//cv::Matx13d n1 = sqrt((L2 - L1) / (L2 - L3))*eigenvectors.row(V2) - sqrt((L1 - L3) / (L2 - L3))*eigenvectors.row(V3);
+	cv::Matx13d n2 = sqrt((L2 - L1) / (L2 - L3))*eigenvectors.row(V2) + sqrt((L1 - L3) / (L2 - L3))*eigenvectors.row(V3);
+	//cv::Matx13d n3 = -sqrt((L2 - L1) / (L2 - L3))*eigenvectors.row(V2) - sqrt((L1 - L3) / (L2 - L3))*eigenvectors.row(V3);
+	//cv::Matx13d n4 = -sqrt((L2 - L1) / (L2 - L3))*eigenvectors.row(V2) + sqrt((L1 - L3) / (L2 - L3))*eigenvectors.row(V3);
+	if (n2(2) < 0)
+	{
+		n2 = n2 * -1;
+	}
+
+	//std::cout << n2 << std::endl;
+	circle.r33.at<float>(0, 2) = n2(0);
+	circle.r33.at<float>(1, 2) = n2(1);
+	circle.r33.at<float>(2, 2) = n2(2);
+
+#else
+	//cv::RotatedRect rect;
+	//rect.angle = circle.outter.theta;
+	//rect.center.x = circle.outter.x;
+	//rect.center.y = circle.outter.y;
+	//rect.size.width = circle.outter.a * 2;
+	//rect.size.height = circle.outter.b * 2;
+	
+	//cv::Mat et(1, 6, CV_64F);
+	//fromRotatedRectToEllipseParams(rect, et);
+
+	//et.at<double>(0, 0) = circle.outter.A;
+	//et.at<double>(0, 1) = circle.outter.B;
+	//et.at<double>(0, 2) = circle.outter.C;
+	//et.at<double>(0, 3) = circle.outter.D;
+	//et.at<double>(0, 4) = circle.outter.E;
+	//et.at<double>(0, 5) = circle.outter.F;
 
 	position = estimatePositionAnalyticalSol(et, camK, outterdiameter);
 
@@ -1329,6 +1369,340 @@ void circularPatternBasedLocSystems::localization()
 		// TODO, use multiple circles to determine the accurate rotation
 		ringCircles[i].t = post;
 	}
+}
+
+struct reproj_functor : Functor<double>
+{
+	reproj_functor(cv::Mat &r33, float diameteroutter, float f,
+		double A1, double B1, double C1, double D1, double E1, double F1,
+		double A2, double B2, double C2, double D2, double E2, double F2, double interdist) : Functor<double>(6, 6),
+		_r33(r33), _radius(diameteroutter*0.5), _f(f),
+		_QA1(A1), _QB1(B1), _QC1(C1), _QD1(D1), _QE1(E1), _QF1(F1),
+		_QA2(A2), _QB2(B2), _QC2(C2), _QD2(D2), _QE2(E2), _QF2(F2), _interdist(interdist){}
+	int operator()(const Eigen::VectorXd &x, Eigen::VectorXd &fvec) const
+	{
+		double x1 = x(0);
+		double y1 = x(1);
+		double z1 = x(2);
+		double x2 = x(3);
+		double y2 = x(4);
+		double z2 = x(5);
+
+		cv::Vec3f ds = cv::Vec3f(x2 - x1, y2 - y1, z2 - z1);
+
+#if 0
+		cv::Vec3f ai = ds / cv::norm(ds);
+		cv::Vec3f ak;
+		ak(0) = _r33.at<float>(0, 2);
+		ak(1) = _r33.at<float>(1, 2);
+		ak(2) = _r33.at<float>(2, 2);
+		cv::Vec3f aj = ak.cross(ai);
+		cv::Mat r(3, 3, CV_32F);
+		r.ptr<float>(0)[0] = ai(0); r.ptr<float>(0)[1] = aj(0); r.ptr<float>(0)[2] = ak(0);
+		r.ptr<float>(1)[0] = ai(1); r.ptr<float>(1)[1] = aj(1); r.ptr<float>(1)[2] = ak(1);
+		r.ptr<float>(2)[0] = ai(2); r.ptr<float>(2)[1] = aj(2); r.ptr<float>(2)[2] = ak(2);
+		//r = r.t();
+		// constant points
+		static const double cpp[8][2] = {
+			{ _radius,0},{ _radius * sqrt(2) / 2, _radius * sqrt(2) / 2},{ 0, _radius },{ -_radius * sqrt(2) / 2, _radius * sqrt(2) / 2 },
+			{ -_radius,0 },{ -_radius * sqrt(2) / 2, -_radius * sqrt(2) / 2 },{ 0, -_radius },{ _radius * sqrt(2) / 2, -_radius * sqrt(2) / 2 } };
+				
+		float *ptrr = r.ptr<float>(0);
+		// for 2 circles
+		for (int i = 0; i < 8; i++)
+		{
+			double xc1 = ptrr[0] * cpp[i][0] + ptrr[1] * cpp[i][1] - x1;
+			double yc1 = ptrr[3] * cpp[i][0] + ptrr[4] * cpp[i][1] - y1;
+			double zc1 = ptrr[6] * cpp[i][0] + ptrr[7] * cpp[i][1] - z1;
+
+			double xc2 = ptrr[0] * cpp[i][0] + ptrr[1] * cpp[i][1] - x2;
+			double yc2 = ptrr[3] * cpp[i][0] + ptrr[4] * cpp[i][1] - y2;
+			double zc2 = ptrr[6] * cpp[i][0] + ptrr[7] * cpp[i][1] - z2;
+
+			//projection
+			float u1 = xc1 / zc1 * _f; float v1 = yc1 / zc1 * _f;
+			float u2 = xc2 / zc2 * _f; float v2 = yc2 / zc2 * _f;
+
+			fvec(i) = _QA1*u1*u1 + _QB1*u1*v1 + _QC1*v1*v1 + _QD1*u1 + _QE1*v1 + _QF1;
+			fvec(i+8) = _QA2*u2*u2 + _QB2*u2*v2 + _QC2*v2*v2 + _QD2*u2 + _QE2*v2 + _QF2;
+		}
+#endif
+		fvec(0) = cv::norm(ds) - _interdist;
+		fvec(1) = fvec(2) = fvec(3) = fvec(4) = fvec(5) = 0;
+		//std::cout << "fvec:" << fvec << std::endl;
+
+		return 0;
+	}
+
+	float _radius;
+	cv::Mat3f _r33;
+	float _f;
+	double _QA1, _QB1, _QC1, _QD1, _QE1, _QF1, _QA2, _QB2, _QC2, _QD2, _QE2, _QF2;
+	double _interdist;
+};
+
+
+void circularPatternBasedLocSystems::routineFullPoseEstimationBasedOn2Markers(cv::Mat &src, float interdistance)
+{
+	if (ringCircles.size() != 2)
+		return;
+
+	cv::Vec3f ds = ringCircles[1].t - ringCircles[0].t;
+	float ds_norm = cv::norm(ds);
+	
+	if (fabs(ds_norm - interdistance) > 0.3)// too error
+		return;
+
+	// correct
+	// first, estimate r;
+	cv::Vec3f ai = ds / ds_norm;
+	cv::Vec3f ak;
+	ak(0) = ringCircles[0].r33.at<float>(0, 2);	
+	ak(1) = ringCircles[0].r33.at<float>(1, 2);
+	ak(2) = ringCircles[0].r33.at<float>(2, 2);
+	cv::Vec3f aj = ak.cross(ai);
+	cv::Mat r(3,3,CV_32F);
+	r.ptr<float>(0)[0] = ai(0); r.ptr<float>(0)[1] = aj(0); r.ptr<float>(0)[2] = ak(0);
+	r.ptr<float>(1)[0] = ai(1); r.ptr<float>(1)[1] = aj(1); r.ptr<float>(1)[2] = ak(1);
+	r.ptr<float>(2)[0] = ai(2); r.ptr<float>(2)[1] = aj(2); r.ptr<float>(2)[2] = ak(2);
+
+#if 0
+	float _radius = outterdiameter * 0.5;
+	static const double cpp[8][2] = {
+		{ _radius,0 },{ _radius * sqrt(2) / 2, _radius * sqrt(2) / 2 },{ 0, _radius },{ -_radius * sqrt(2) / 2, _radius * sqrt(2) / 2 },
+		{ -_radius,0 },{ -_radius * sqrt(2) / 2, -_radius * sqrt(2) / 2 },{ 0, -_radius },{ _radius * sqrt(2) / 2, -_radius * sqrt(2) / 2 } };
+	//std::cout << r << std::endl;
+	//r = r.t();
+	//std::cout << r << std::endl;
+	float *ptrr = r.ptr<float>(0);
+	// for 2 circles
+	float _f = camK.at<double>(0, 0);
+	float _u0 = camK.at<double>(0, 2);
+	float _v0 = camK.at<double>(1, 2);
+	for (int i = 0; i < 8; i++)
+	{
+		double xc1 = ptrr[0] * cpp[i][0] + ptrr[1] * cpp[i][1] - ringCircles[0].t(0);
+		double yc1 = ptrr[3] * cpp[i][0] + ptrr[4] * cpp[i][1] - ringCircles[0].t(1);
+		double zc1 = ptrr[6] * cpp[i][0] + ptrr[7] * cpp[i][1] - ringCircles[0].t(2);
+
+		double xc2 = ptrr[0] * cpp[i][0] + ptrr[1] * cpp[i][1] - ringCircles[1].t(0);
+		double yc2 = ptrr[3] * cpp[i][0] + ptrr[4] * cpp[i][1] - ringCircles[1].t(1);
+		double zc2 = ptrr[6] * cpp[i][0] + ptrr[7] * cpp[i][1] - ringCircles[1].t(2);
+
+		//projection
+		float u1 = xc1 / zc1 * _f; float v1 = yc1 / zc1 * _f;
+		float u2 = xc2 / zc2 * _f; float v2 = yc2 / zc2 * _f;
+
+		cv::circle(src, cv::Point(u1+ _u0, v1+ _v0), 2, cv::Scalar(0, 0, 255, 0), 2, 8, 0);
+		cv::circle(src, cv::Point(u2+ _u0, v2+ _v0), 2, cv::Scalar(0, 255, 0, 0), 2, 8, 0);
+	}
+	cv::namedWindow("src", CV_WINDOW_NORMAL);
+	cv::resizeWindow("src", 640, 480);
+	cv::imshow("src", src);
+	cv::waitKey(10);
+	return;
+#endif
+
+	// do a L-M optimization
+	Eigen::VectorXd optx(6);
+	optx(0) = ringCircles[0].t(0);
+	optx(1) = ringCircles[0].t(1);
+	optx(2) = ringCircles[0].t(2);
+	optx(3) = ringCircles[1].t(0);
+	optx(4) = ringCircles[1].t(1);
+	optx(5) = ringCircles[1].t(2);
+
+	std::cout << "x: " << ringCircles[0].outter.x - camK.at<double>(0,2) << "y: " << ringCircles[0].outter.y - camK.at<double>(1, 2) << std::endl;
+	std::cout << "x: " << ringCircles[1].outter.x - camK.at<double>(0, 2) << "y: " << ringCircles[1].outter.y - camK.at<double>(1, 2) << std::endl;
+
+	std::cout << "x: " << optx << std::endl;
+
+	reproj_functor functor(r,outterdiameter,camK.at<double>(0,0),
+		ringCircles[0].outter.A,ringCircles[0].outter.B, ringCircles[0].outter.C, ringCircles[0].outter.D, ringCircles[0].outter.E, ringCircles[0].outter.F,
+		ringCircles[1].outter.A, ringCircles[1].outter.B, ringCircles[1].outter.C, ringCircles[1].outter.D, ringCircles[1].outter.E, ringCircles[1].outter.F, interdistance);
+
+	Eigen::NumericalDiff<reproj_functor> numDiff(functor);
+	Eigen::LevenbergMarquardt<Eigen::NumericalDiff<reproj_functor>, double> lm(numDiff);
+	lm.parameters.maxfev = 20;
+	lm.parameters.xtol = 1.0e-10;
+	std::cout << lm.parameters.maxfev << std::endl;
+	int ret = lm.minimize(optx);
+
+	std::cout << lm.iter << std::endl;
+	std::cout << ret << std::endl;
+	std::cout << "x that minimizes the function: " << optx << std::endl; 
+
+	ringCircles[1].t = cv::Vec3f(optx(3), optx(4), optx(5));
+	ringCircles[0].t = cv::Vec3f(optx(0), optx(1), optx(2));
+
+	ds = ringCircles[1].t - ringCircles[0].t;
+	ai = ds / ds_norm;
+	aj = ak.cross(ai);
+	r.ptr<float>(0)[0] = ai(0); r.ptr<float>(0)[1] = aj(0); r.ptr<float>(0)[2] = ak(0);
+	r.ptr<float>(1)[0] = ai(1); r.ptr<float>(1)[1] = aj(1); r.ptr<float>(1)[2] = ak(1);
+	r.ptr<float>(2)[0] = ai(2); r.ptr<float>(2)[1] = aj(2); r.ptr<float>(2)[2] = ak(2);
+
+	ringCircles[0].r33 = r;
+	ringCircles[1].r33 = r;
+
+	std::cout << ringCircles[0].t << std::endl;
+	std::cout << ringCircles[1].t << std::endl;
+	std::cout << ringCircles[0].r33 << std::endl;
+}
+
+
+
+struct marker3_functor : Functor<double>
+{
+	marker3_functor(double hinterdist, double vinterdist) : Functor<double>(9, 9),
+		_hinterdist(hinterdist), _vinterdist(vinterdist){}
+	int operator()(const Eigen::VectorXd &x, Eigen::VectorXd &fvec) const
+	{
+		double x1 = x(0);
+		double y1 = x(1);
+		double z1 = x(2);
+		double x2 = x(3);
+		double y2 = x(4);
+		double z2 = x(5);
+		double x3 = x(6);
+		double y3 = x(7);
+		double z3 = x(8);
+
+		cv::Vec3f dsh = cv::Vec3f(x2 - x1, y2 - y1, z2 - z1);
+		cv::Vec3f dsv = cv::Vec3f(x3 - x1, y3 - y1, z3 - z1);
+
+		fvec(0) = cv::norm(dsh) - _hinterdist;
+		fvec(1) = cv::norm(dsv) - _vinterdist;
+		fvec(2) = dsh.dot(dsv) / cv::norm(dsh) / cv::norm(dsv);
+		fvec(3) = fvec(4) = fvec(5) = fvec(6) = fvec(7) = fvec(8) = 0;
+		//std::cout << "fvec:" << fvec << std::endl;
+
+		return 0;
+	}
+
+	double _hinterdist,_vinterdist;
+};
+
+void circularPatternBasedLocSystems::routineFullPoseEstimationBasedOn3Markers(cv::Mat &src, float hinterdistance, float vinterdistance)
+{
+	if (ringCircles.size() != 3)
+		return;
+
+	cv::Vec3f ds1 = ringCircles[1].t - ringCircles[0].t;
+	cv::Vec3f ds2 = ringCircles[2].t - ringCircles[0].t;
+	cv::Vec3f ds3 = ringCircles[2].t - ringCircles[1].t;
+
+	float ds1_norm = cv::norm(ds1);
+	float ds2_norm = cv::norm(ds2);
+	float ds3_norm = cv::norm(ds3);
+
+	int origo_id = -1, x_id, y_id;
+	if (fabs(ds1_norm - hinterdistance) < 0.03)
+	{
+		if (fabs(ds2_norm - vinterdistance) < 0.03)
+		{
+			origo_id = 0; x_id = 1; y_id = 2;
+		}
+		else if (fabs(ds3_norm - vinterdistance) < 0.03)
+		{
+			origo_id = 1; x_id = 0; y_id = 2;
+		}
+	}
+	else if (fabs(ds2_norm - hinterdistance) < 0.03)
+	{
+		if (fabs(ds1_norm - vinterdistance) < 0.03)
+		{
+			origo_id = 0; x_id = 2; y_id = 1;
+		}
+		else if (fabs(ds3_norm - vinterdistance) < 0.03)
+		{
+			origo_id = 2; x_id = 0; y_id = 1;
+		}
+	}
+	else if (fabs(ds3_norm - hinterdistance) < 0.03)
+	{
+		if (fabs(ds1_norm - vinterdistance) < 0.03)
+		{
+			origo_id = 1; x_id = 2; y_id = 0;
+		}
+		else if (fabs(ds2_norm - vinterdistance) < 0.03)
+		{
+			origo_id = 2; x_id = 1; y_id = 0;
+		}
+	}
+
+	if (origo_id == -1)
+		return;// false
+
+#if 1
+	// do a L-M optimization
+	Eigen::VectorXd optx(9);
+	optx(0) = ringCircles[origo_id].t(0);
+	optx(1) = ringCircles[origo_id].t(1);
+	optx(2) = ringCircles[origo_id].t(2);
+	optx(3) = ringCircles[x_id].t(0);
+	optx(4) = ringCircles[x_id].t(1);
+	optx(5) = ringCircles[x_id].t(2);
+	optx(6) = ringCircles[y_id].t(0);
+	optx(7) = ringCircles[y_id].t(1);
+	optx(8) = ringCircles[y_id].t(2);
+
+	std::cout << "x: " << optx << std::endl;
+
+	marker3_functor functor(hinterdistance, vinterdistance);
+	Eigen::NumericalDiff<marker3_functor> numDiff(functor);
+	Eigen::LevenbergMarquardt<Eigen::NumericalDiff<marker3_functor>, double> lm(numDiff);
+	lm.parameters.maxfev = 20;
+	lm.parameters.xtol = 1.0e-10;
+	std::cout << lm.parameters.maxfev << std::endl;
+	int ret = lm.minimize(optx);
+
+	std::cout << lm.iter << std::endl;
+	std::cout << ret << std::endl;
+	std::cout << "x that minimizes the function: " << optx << std::endl;
+
+	ringCircles[origo_id].t = cv::Vec3f(optx(0), optx(1), optx(2));
+	ringCircles[x_id].t = cv::Vec3f(optx(3), optx(4), optx(5));
+	ringCircles[y_id].t = cv::Vec3f(optx(6), optx(7), optx(8));
+#endif
+
+	ds1 = ringCircles[x_id].t - ringCircles[origo_id].t;
+	ds2 = ringCircles[y_id].t - ringCircles[origo_id].t;
+
+	// correct
+	// first, estimate r;
+	cv::Vec3f ai = ds1 / cv::norm(ds1);
+	cv::Vec3f aj = ds2 / cv::norm(ds2);
+	cv::Vec3f ak = ai.cross(aj);
+
+	cv::Mat r(3, 3, CV_32F);
+	r.ptr<float>(0)[0] = ai(0); r.ptr<float>(0)[1] = aj(0); r.ptr<float>(0)[2] = ak(0);
+	r.ptr<float>(1)[0] = ai(1); r.ptr<float>(1)[1] = aj(1); r.ptr<float>(1)[2] = ak(1);
+	r.ptr<float>(2)[0] = ai(2); r.ptr<float>(2)[1] = aj(2); r.ptr<float>(2)[2] = ak(2);
+
+	ringCircles[0].r33 = r;
+	ringCircles[1].r33 = r;
+
+	// draw axis
+	cv::Vec3f origin = ringCircles[origo_id].t;
+	cv::Vec3f ptx = origin + 0.1 * ai;
+	cv::Vec3f pty = origin + 0.1 * aj;
+	cv::Vec3f ptz = origin + 0.1 * ak;
+
+	cv::Point2f origin2d, ptx2d, pty2d, ptz2d;
+	origin2d.x = (origin(0) / origin(2))*camK.at<double>(0, 0) + camK.at<double>(0, 2);
+	origin2d.y = (origin(1) / origin(2))*camK.at<double>(1, 1) + camK.at<double>(1, 2);
+	ptx2d.x = (ptx(0) / ptx(2))*camK.at<double>(0, 0) + camK.at<double>(0, 2);
+	ptx2d.y = (ptx(1) / ptx(2))*camK.at<double>(1, 1) + camK.at<double>(1, 2);
+	pty2d.x = (pty(0) / pty(2))*camK.at<double>(0, 0) + camK.at<double>(0, 2);
+	pty2d.y = (pty(1) / pty(2))*camK.at<double>(1, 1) + camK.at<double>(1, 2);
+	ptz2d.x = (ptz(0) / ptz(2))*camK.at<double>(0, 0) + camK.at<double>(0, 2);
+	ptz2d.y = (ptz(1) / ptz(2))*camK.at<double>(1, 1) + camK.at<double>(1, 2);
+
+	// 3 axis
+	cv::arrowedLine(src, origin2d, ptx2d, cv::Scalar(255, 0, 0, 0), 2, 8, 0);
+	cv::arrowedLine(src, origin2d, pty2d, cv::Scalar(0, 255, 0, 0), 2, 8, 0);
+	cv::arrowedLine(src, origin2d, ptz2d, cv::Scalar(0, 0, 255, 0), 2, 8, 0);
 }
 
 bool circularPatternBasedLocSystems::setAxisFrame(std::vector<cv::Point> &click, std::string &axisFile)
@@ -1568,6 +1942,7 @@ bool circularPatternBasedLocSystems::tostream(std::ofstream &oss)
 		float z = static_cast<int>(t(2) * 1000) / 1000.0;\
 		ss << std::setprecision(5) << x << "," << y << "," << z;\
 	}
+
 		DISPLAY_COOR(ringCircles[i].t)
 			oss << i << "," << ss.str() << ";";
 	}
